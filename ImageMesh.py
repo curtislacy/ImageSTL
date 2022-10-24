@@ -5,7 +5,7 @@ from matplotlib import pyplot
 import matplotlib.colors as mcolors
 
 
-def create_surface(heights):
+def _create_surface(heights):
     width = len(heights[0])
     height = len(heights)
     vertices = numpy.empty([height * width, 3])
@@ -41,19 +41,39 @@ def create_surface(heights):
     }
 
 
-class ImageMesh(mesh.Mesh):
+def _create_footprint(heights, thickness=1):
+
+    altitude = numpy.amin(heights) - thickness
+    bottom_heights = altitude * numpy.ones(numpy.shape(heights))
+    return ImageShell(bottom_heights)
+
+
+class ImageShell(mesh.Mesh):
 
     def __init__(self, heights):
+
         self.height = len(heights)
         self.width = len(heights[0])
+        self.heights = heights
 
-        surface = create_surface(heights)
+        surface = _create_surface(heights)
         faces = surface["faces"]
         vertices = surface["vertices"]
         super().__init__(numpy.zeros(faces.shape[0], dtype=mesh.Mesh.dtype))
         for i, f in enumerate(faces):
             for j in range(3):
                 self.vectors[i][j] = vertices[f[j], :]
+
+
+class ImageSolid(mesh.Mesh):
+
+    def __init__(self, image_shell, thickness=1):
+        self.height = image_shell.height
+        self.width = image_shell.width
+        self.heights = image_shell.heights
+
+        footprint = _create_footprint(self.heights, thickness)
+        super().__init__(numpy.concatenate([image_shell.data, footprint.data]))
 
 
 def display_as_3d(mesh, xlim=None, ylim=None, zlim=None, elevation=45., azimuth=45.):
