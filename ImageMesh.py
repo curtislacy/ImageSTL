@@ -42,7 +42,6 @@ def _create_surface(heights):
 
 
 def _create_footprint(heights, thickness=1):
-
     altitude = numpy.amin(heights) - thickness
     bottom_heights = altitude * numpy.ones(numpy.shape(heights))
     return ImageShell(bottom_heights)
@@ -67,13 +66,20 @@ class ImageShell(mesh.Mesh):
 
 class ImageSolid(mesh.Mesh):
 
-    def __init__(self, image_shell, thickness=1):
-        self.height = image_shell.height
-        self.width = image_shell.width
-        self.heights = image_shell.heights
+    def __init__(self, heights, thickness=1):
+        # Store the dimensions and original heights to simplify editing in the future.
+        self.height = len(heights)
+        self.width = len(heights[0])
+        self.heights = heights
 
-        footprint = _create_footprint(self.heights, thickness)
-        super().__init__(numpy.concatenate([image_shell.data, footprint.data]))
+        # Make the shell for the image surface
+        self.image_shell = ImageShell(heights)
+        # Also make the shell for the footprint
+        self.footprint = _create_footprint(self.heights, thickness)
+        # TODO: Make four more shells for the walls.
+
+        # Now combine all the surfaces to make the actual solid mesh
+        super().__init__(numpy.concatenate([self.image_shell.data, self.footprint.data]))
 
 
 def display_as_3d(mesh, xlim=None, ylim=None, zlim=None, elevation=45., azimuth=45.):
