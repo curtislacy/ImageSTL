@@ -5,7 +5,7 @@ from matplotlib import pyplot
 import matplotlib.colors as mcolors
 
 
-def _create_surface(heights):
+def _create_surface(heights, counterclockwise=False):
     width = len(heights[0])
     height = len(heights)
     vertices = numpy.empty([height * width, 3])
@@ -25,15 +25,27 @@ def _create_surface(heights):
         lower_left = upper_left + width
         lower_right = lower_left + 1
 
-        # lower triangle
-        faces[face][0] = upper_left
-        faces[face][1] = lower_right
-        faces[face][2] = lower_left
+        if counterclockwise:
+            # lower triangle
+            faces[face][0] = upper_left
+            faces[face][1] = lower_left
+            faces[face][2] = lower_right
 
-        # upper angle
-        faces[face + 1][0] = upper_left
-        faces[face + 1][1] = upper_right
-        faces[face + 1][2] = lower_right
+            # upper triangle
+            faces[face + 1][0] = upper_right
+            faces[face + 1][1] = upper_left
+            faces[face + 1][2] = lower_right
+
+        else:
+            # lower triangle
+            faces[face][0] = upper_left
+            faces[face][1] = lower_right
+            faces[face][2] = lower_left
+
+            # upper triangle
+            faces[face + 1][0] = upper_left
+            faces[face + 1][1] = upper_right
+            faces[face + 1][2] = lower_right
 
     return {
         "faces": faces,
@@ -41,7 +53,7 @@ def _create_surface(heights):
     }
 
 
-def _create_closing_surface(top, bottom, x_coordinates, y_coordinates):
+def _create_closing_surface(top, bottom, x_coordinates, y_coordinates, counterclockwise=False):
     width = len(x_coordinates)
     height = 2
     vertices = numpy.empty([width * height, 3])
@@ -63,15 +75,26 @@ def _create_closing_surface(top, bottom, x_coordinates, y_coordinates):
         upper_right = (quad*2)+2
         lower_right = (quad*2)+3
 
-        # lower triangle
-        faces[face][0] = upper_left
-        faces[face][1] = lower_right
-        faces[face][2] = lower_left
+        if counterclockwise:
+            # lower triangle
+            faces[face][0] = upper_left
+            faces[face][1] = lower_left
+            faces[face][2] = lower_right
 
-        # upper angle
-        faces[face + 1][0] = upper_left
-        faces[face + 1][1] = upper_right
-        faces[face + 1][2] = lower_right
+            # upper angle
+            faces[face + 1][0] = upper_right
+            faces[face + 1][1] = upper_left
+            faces[face + 1][2] = lower_right
+        else:
+            # lower triangle
+            faces[face][0] = upper_left
+            faces[face][1] = lower_right
+            faces[face][2] = lower_left
+
+            # upper angle
+            faces[face + 1][0] = upper_left
+            faces[face + 1][1] = upper_right
+            faces[face + 1][2] = lower_right
 
     return _create_mesh({
         "faces": faces,
@@ -91,13 +114,13 @@ def _create_mesh(shape):
 
 class ImageShell(mesh.Mesh):
 
-    def __init__(self, heights):
+    def __init__(self, heights, counterclockwise=False):
 
         self.height = len(heights)
         self.width = len(heights[0])
         self.heights = heights
 
-        surface = _create_surface(heights)
+        surface = _create_surface(heights, counterclockwise)
         faces = surface["faces"]
         vertices = surface["vertices"]
         super().__init__(numpy.zeros(faces.shape[0], dtype=mesh.Mesh.dtype))
@@ -115,7 +138,7 @@ class ImageSolid(mesh.Mesh):
         self.heights = heights
 
         # Make the shell for the image surface
-        self.image_shell = ImageShell(heights)
+        self.image_shell = ImageShell(heights, counterclockwise=True)
         # Also make the shell for the footprint
         self.footprint_heights = self._create_footprint(thickness)
         self.footprint_shell = ImageShell(self.footprint_heights)
@@ -130,12 +153,14 @@ class ImageSolid(mesh.Mesh):
         self.bottom_edge = _create_closing_surface(
             self.heights[bottom_edge_index], self.footprint_heights[bottom_edge_index],
             bottom_edge_index * numpy.ones(len(self.heights[0])),
-            numpy.arange(0, len(heights[0]))
+            numpy.arange(0, len(heights[0])),
+            counterclockwise=True
         )
         self.left_edge = _create_closing_surface(
             self.heights[:, 0], self.footprint_heights[:, 0],
             numpy.arange(0, len(heights)),
-            numpy.zeros(len(heights))
+            numpy.zeros(len(heights)),
+            counterclockwise=True
         )
         right_edge_index = len(self.heights[0])-1
         self.right_edge = _create_closing_surface(
