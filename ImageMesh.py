@@ -112,6 +112,17 @@ def _create_mesh(shape):
     return surface
 
 
+def create_height_from_image(image):
+    heights = numpy.zeros((image.shape[0], image.shape[1]))
+    for row in range(0, len(heights)):
+        for column in range(0, len(image[row])):
+            heights[row][column] = max(
+                image[row][column][0],
+                image[row][column][1],
+                image[row][column][2]
+            )
+    return heights
+
 class ImageShell(mesh.Mesh):
 
     def __init__(self, heights, counterclockwise=False):
@@ -131,7 +142,11 @@ class ImageShell(mesh.Mesh):
 
 class ImageSolid(mesh.Mesh):
 
-    def __init__(self, heights, thickness=1):
+    def __init__(self, heights=None, image=None, thickness=1):
+
+        if heights is None and image is not None:
+            heights = create_height_from_image(image)
+
         # Store the dimensions and original heights to simplify editing in the future.
         self.height = len(heights)
         self.width = len(heights[0])
