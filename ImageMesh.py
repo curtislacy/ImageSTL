@@ -123,6 +123,7 @@ def create_height_from_image(image):
             )
     return heights
 
+
 class ImageShell(mesh.Mesh):
 
     def __init__(self, heights, counterclockwise=False):
@@ -142,7 +143,8 @@ class ImageShell(mesh.Mesh):
 
 class ImageSolid(mesh.Mesh):
 
-    def __init__(self, heights=None, image=None, thickness=1):
+    def __init__(self, heights=None, image=None,
+                 base_thickness_mm=1, texture_height_mm=255.0, image_height_range=255.0):
 
         if heights is None and image is not None:
             heights = create_height_from_image(image)
@@ -150,19 +152,19 @@ class ImageSolid(mesh.Mesh):
         # Store the dimensions and original heights to simplify editing in the future.
         self.height = len(heights)
         self.width = len(heights[0])
-        self.heights = heights
+        self.heights = texture_height_mm / image_height_range * heights
 
         # Make the shell for the image surface
-        self.image_shell = ImageShell(heights, counterclockwise=True)
+        self.image_shell = ImageShell(self.heights, counterclockwise=True)
         # Also make the shell for the footprint
-        self.footprint_heights = self._create_footprint(thickness)
+        self.footprint_heights = self._create_footprint(base_thickness_mm)
         self.footprint_shell = ImageShell(self.footprint_heights)
 
         # Now make the four walls
         self.top_edge = _create_closing_surface(
             self.heights[0], self.footprint_heights[0],
-            numpy.zeros(len(heights[0])),
-            numpy.arange(0,len(heights[0]))
+            numpy.zeros(len(self.heights[0])),
+            numpy.arange(0, len(self.heights[0]))
         )
         bottom_edge_index = len(self.heights)-1
         self.bottom_edge = _create_closing_surface(
@@ -173,15 +175,15 @@ class ImageSolid(mesh.Mesh):
         )
         self.left_edge = _create_closing_surface(
             self.heights[:, 0], self.footprint_heights[:, 0],
-            numpy.arange(0, len(heights)),
-            numpy.zeros(len(heights)),
+            numpy.arange(0, len(self.heights)),
+            numpy.zeros(len(self.heights)),
             counterclockwise=True
         )
         right_edge_index = len(self.heights[0])-1
         self.right_edge = _create_closing_surface(
             self.heights[:, right_edge_index], self.footprint_heights[:, right_edge_index],
-            numpy.arange(0, len(heights)),
-            right_edge_index * numpy.ones(len(heights))
+            numpy.arange(0, len(self.heights)),
+            right_edge_index * numpy.ones(len(self.heights))
         )
 
         # Now combine all the surfaces to make the actual solid mesh
@@ -192,8 +194,8 @@ class ImageSolid(mesh.Mesh):
                                             self.left_edge.data,
                                             self.right_edge.data]))
 
-    def _create_footprint(self, thickness=1):
-        altitude = numpy.amin(self.heights) - thickness
+    def _create_footprint(self, base_thickness_mm=1):
+        altitude = numpy.amin(self.heights) - base_thickness_mm
         return altitude * numpy.ones(numpy.shape(self.heights))
 
 
