@@ -5,15 +5,15 @@ from matplotlib import pyplot
 import matplotlib.colors as mcolors
 
 
-def _create_surface(heights, counterclockwise=False):
+def _create_surface(heights, scale_factor_xy, counterclockwise=False):
     width = len(heights[0])
     height = len(heights)
     vertices = numpy.empty([height * width, 3])
     for row in range(0, len(heights)):
         for column in range(0, width):
             index = row * width + column
-            vertices[index][0] = row
-            vertices[index][1] = column
+            vertices[index][0] = row * scale_factor_xy[1]
+            vertices[index][1] = column * scale_factor_xy[0]
             vertices[index][2] = heights[row][column]
     quad_rows = height - 1
     quad_columns = width - 1
@@ -53,17 +53,18 @@ def _create_surface(heights, counterclockwise=False):
     }
 
 
-def _create_closing_surface(top, bottom, x_coordinates, y_coordinates, counterclockwise=False):
+def _create_closing_surface(scale_factor_xy, top, bottom, x_coordinates, y_coordinates, counterclockwise=False):
     width = len(x_coordinates)
     height = 2
     vertices = numpy.empty([width * height, 3])
     for column in range(0, width):
-        vertices[column*2][0] = x_coordinates[column]
-        vertices[column*2][1] = y_coordinates[column]
+        # These look weird because vertices is still in row/column space at this time?
+        vertices[column*2][0] = y_coordinates[column] * scale_factor_xy[1]
+        vertices[column*2][1] = x_coordinates[column] * scale_factor_xy[0]
         vertices[column*2][2] = top[column]
 
-        vertices[column*2+1][0] = x_coordinates[column]
-        vertices[column*2+1][1] = y_coordinates[column]
+        vertices[column*2+1][0] = y_coordinates[column] * scale_factor_xy[1]
+        vertices[column*2+1][1] = x_coordinates[column] * scale_factor_xy[0]
         vertices[column*2+1][2] = bottom[column]
 
     quad_columns = width - 1
@@ -123,15 +124,33 @@ def create_height_from_image(image):
             )
     return heights
 
+
+def calculate_scale_factor(dimension_in_datapoints_xy, x_mm, y_mm):
+    if x_mm is None:
+        if y_mm is None:
+            # If we didn't specify target dimensions, then just bail and use a scale of 1.
+            return 1.0, 1.0
+        else:
+            scale = float(y_mm) / (dimension_in_datapoints_xy[1] - 1)
+            return scale, scale
+    else:
+        if y_mm is None:
+            scale = float(x_mm) / (dimension_in_datapoints_xy[0] - 1)
+            return scale, scale
+        else:
+            # Both are specified, so we have to do separate x & y factors.
+            return float(x_mm) / (dimension_in_datapoints_xy[0] - 1), float(y_mm) / (dimension_in_datapoints_xy[1] - 1)
+
+
 class ImageShell(mesh.Mesh):
 
-    def __init__(self, heights, counterclockwise=False):
+    def __init__(self, heights, scale_factor_xy, counterclockwise=False):
 
         self.height = len(heights)
         self.width = len(heights[0])
         self.heights = heights
 
-        surface = _create_surface(heights, counterclockwise)
+        surface = _create_surface(heights, scale_factor_xy, counterclockwise)
         faces = surface["faces"]
         vertices = surface["vertices"]
         super().__init__(numpy.zeros(faces.shape[0], dtype=mesh.Mesh.dtype))
@@ -142,46 +161,56 @@ class ImageShell(mesh.Mesh):
 
 class ImageSolid(mesh.Mesh):
 
-    def __init__(self, heights=None, image=None, thickness=1):
+    def __init__(self, heights=None, image=None,
+                 base_thickness_mm=1, texture_height_mm=255.0, image_height_range=None,
+                 x_mm=None, y_mm=None):
 
         if heights is None and image is not None:
             heights = create_height_from_image(image)
 
+        if image_height_range is None:
+            image_height_range = numpy.max(heights)
+
         # Store the dimensions and original heights to simplify editing in the future.
-        self.height = len(heights)
-        self.width = len(heights[0])
-        self.heights = heights
+        self.dimension_in_datapoints_xy = (len(heights[0]), len(heights))
+        self.heights = texture_height_mm / image_height_range * heights
+
+        self.scale_factor_xy = calculate_scale_factor(self.dimension_in_datapoints_xy, x_mm, y_mm)
 
         # Make the shell for the image surface
-        self.image_shell = ImageShell(heights, counterclockwise=True)
+        self.image_shell = ImageShell(self.heights, self.scale_factor_xy, counterclockwise=True)
         # Also make the shell for the footprint
-        self.footprint_heights = self._create_footprint(thickness)
-        self.footprint_shell = ImageShell(self.footprint_heights)
+        self.footprint_heights = self._create_footprint(base_thickness_mm)
+        self.footprint_shell = ImageShell(self.footprint_heights, self.scale_factor_xy)
 
         # Now make the four walls
         self.top_edge = _create_closing_surface(
+            self.scale_factor_xy,
             self.heights[0], self.footprint_heights[0],
-            numpy.zeros(len(heights[0])),
-            numpy.arange(0,len(heights[0]))
+            numpy.arange(0, len(self.heights[0])),
+            numpy.zeros(len(self.heights[0]))
         )
         bottom_edge_index = len(self.heights)-1
         self.bottom_edge = _create_closing_surface(
+            self.scale_factor_xy,
             self.heights[bottom_edge_index], self.footprint_heights[bottom_edge_index],
-            bottom_edge_index * numpy.ones(len(self.heights[0])),
             numpy.arange(0, len(heights[0])),
+            bottom_edge_index * numpy.ones(len(self.heights[0])),
             counterclockwise=True
         )
         self.left_edge = _create_closing_surface(
+            self.scale_factor_xy,
             self.heights[:, 0], self.footprint_heights[:, 0],
-            numpy.arange(0, len(heights)),
-            numpy.zeros(len(heights)),
+            numpy.zeros(len(self.heights)),
+            numpy.arange(0, len(self.heights)),
             counterclockwise=True
         )
         right_edge_index = len(self.heights[0])-1
         self.right_edge = _create_closing_surface(
+            self.scale_factor_xy,
             self.heights[:, right_edge_index], self.footprint_heights[:, right_edge_index],
-            numpy.arange(0, len(heights)),
-            right_edge_index * numpy.ones(len(heights))
+            right_edge_index * numpy.ones(len(self.heights)),
+            numpy.arange(0, len(self.heights))
         )
 
         # Now combine all the surfaces to make the actual solid mesh
@@ -190,10 +219,11 @@ class ImageSolid(mesh.Mesh):
                                             self.top_edge.data,
                                             self.bottom_edge.data,
                                             self.left_edge.data,
-                                            self.right_edge.data]))
+                                            self.right_edge.data
+                                            ]))
 
-    def _create_footprint(self, thickness=1):
-        altitude = numpy.amin(self.heights) - thickness
+    def _create_footprint(self, base_thickness_mm=1):
+        altitude = numpy.amin(self.heights) - base_thickness_mm
         return altitude * numpy.ones(numpy.shape(self.heights))
 
 
